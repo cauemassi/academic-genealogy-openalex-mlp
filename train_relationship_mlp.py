@@ -8,11 +8,15 @@ import json
 import random
 import re
 from collections import defaultdict
+from itertools import combinations
 from pathlib import Path
 from typing import Iterable
 
 import numpy as np
 import torch
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import average_precision_score
 from torch import nn
 
 
@@ -99,12 +103,17 @@ def years_from_rows(rows: Iterable[dict[str, str]]) -> list[int]:
 
 
 def title_overlap(rows: Iterable[dict[str, str]]) -> float:
-    """Calculate average title token overlap across coauthored works."""
-    overlaps: list[float] = []
-    for row in rows:
-        tokens = normalize_tokens(row.get("work_title", ""))
-        if tokens:
-            overlaps.append(len(tokens) / max(len(tokens), 1))
+    """Calculate average pairwise Jaccard overlap among work titles."""
+    title_tokens = [
+        normalize_tokens(row.get("work_title", ""))
+        for row in rows
+        if normalize_tokens(row.get("work_title", ""))
+    ]
+    overlaps = [
+        len(left & right) / len(left | right)
+        for left, right in combinations(title_tokens, 2)
+        if left | right
+    ]
     return float(np.mean(overlaps)) if overlaps else 0.0
 
 
@@ -210,11 +219,11 @@ def build_dataset(
     )
 
     dataset = list(positive_pairs.values())
-    researcher_work_counts = defaultdict(int)
-    advisor_work_counts = defaultdict(int)
+    researcher_work_ids: defaultdict[str, set[str]] = defaultdict(set)
+    advisor_work_ids: defaultdict[str, set[str]] = defaultdict(set)
     for row in rows:
-        researcher_work_counts[row["researcher_open_alex_id"]] += 1
-        advisor_work_counts[row["advisor_open_alex_id"]] += 1
+        researcher_work_ids[row["researcher_open_alex_id"]].add(row["work_id"])
+        advisor_work_ids[row["advisor_open_alex_id"]].add(row["work_id"])
 
     for researcher, advisor in candidates[:negative_count]:
         pair = {
@@ -230,8 +239,8 @@ def build_dataset(
             researcher["name"],
             advisor["name"],
             [],
-            researcher_work_counts[researcher["openalex_id"]],
-            advisor_work_counts[advisor["openalex_id"]],
+            len(researcher_work_ids[researcher["openalex_id"]]),
+            len(advisor_work_ids[advisor["openalex_id"]]),
         )
         dataset.append(pair)
     return dataset
@@ -274,21 +283,29 @@ class RelationshipMLP(nn.Module):
         return self.network(values).squeeze(1)
 
 
-def calculate_metrics(labels: np.ndarray, predictions: np.ndarray) -> dict[str, float]:
-    """Calculate binary classification metrics."""
+def calculate_metrics(
+    labels: np.ndarray,
+    predictions: np.ndarray,
+    probabilities: np.ndarray,
+) -> dict[str, float]:
+    """Calculate threshold and ranking metrics for binary classification."""
     true_positive = int(((labels == 1) & (predictions == 1)).sum())
     true_negative = int(((labels == 0) & (predictions == 0)).sum())
     false_positive = int(((labels == 0) & (predictions == 1)).sum())
     false_negative = int(((labels == 1) & (predictions == 0)).sum())
     total = max(len(labels), 1)
+    precision = true_positive / max(true_positive + false_positive, 1)
+    recall = true_positive / max(true_positive + false_negative, 1)
     return {
         "true_positive": true_positive,
         "true_negative": true_negative,
         "false_positive": false_positive,
         "false_negative": false_negative,
         "accuracy": (true_positive + true_negative) / total,
-        "precision": true_positive / max(true_positive + false_positive, 1),
-        "recall": true_positive / max(true_positive + false_negative, 1),
+        "precision": precision,
+        "recall": recall,
+        "f1": 2 * precision * recall / max(precision + recall, 1e-12),
+        "pr_auc": float(average_precision_score(labels, probabilities)),
         "specificity": true_negative / max(true_negative + false_positive, 1),
         "negative_predictive_value": true_negative
         / max(true_negative + false_negative, 1),
@@ -344,7 +361,11 @@ def main() -> None:
 
     model = RelationshipMLP(len(FEATURE_NAMES))
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=0.0001)
-    loss_function = nn.BCEWithLogitsLoss()
+    positive_count = max(int(labels[train_indices].sum()), 1)
+    negative_count = max(len(train_indices) - positive_count, 1)
+    loss_function = nn.BCEWithLogitsLoss(
+        pos_weight=torch.tensor([negative_count / positive_count])
+    )
     train_values = torch.tensor(normalized_features[train_indices])
     train_labels = torch.tensor(labels[train_indices])
 
@@ -363,7 +384,47 @@ def main() -> None:
     validation_probabilities = all_probabilities[validation_indices]
     validation_labels = labels[validation_indices].astype(int)
     validation_predictions = (validation_probabilities >= 0.5).astype(int)
-    metrics = calculate_metrics(validation_labels, validation_predictions)
+    metrics = calculate_metrics(
+        validation_labels, validation_predictions, validation_probabilities
+    )
+    train_features = normalized_features[train_indices]
+    test_features = normalized_features[validation_indices]
+    train_labels = labels[train_indices].astype(int)
+    test_labels = validation_labels
+
+    baseline_probabilities = (
+        features[validation_indices, 0] > 0
+    ).astype(float)
+    baseline_predictions = baseline_probabilities.astype(int)
+    baselines = {
+        "coauthorship_rule": calculate_metrics(
+            test_labels, baseline_predictions, baseline_probabilities
+        )
+    }
+
+    logistic_regression = LogisticRegression(
+        class_weight="balanced", random_state=args.seed, max_iter=1000
+    )
+    logistic_regression.fit(train_features, train_labels)
+    logistic_probabilities = logistic_regression.predict_proba(test_features)[:, 1]
+    baselines["logistic_regression"] = calculate_metrics(
+        test_labels,
+        (logistic_probabilities >= 0.5).astype(int),
+        logistic_probabilities,
+    )
+
+    gradient_boosting = GradientBoostingClassifier(random_state=args.seed)
+    gradient_boosting.fit(
+        train_features,
+        train_labels,
+        sample_weight=np.where(train_labels == 1, negative_count / positive_count, 1.0),
+    )
+    gradient_probabilities = gradient_boosting.predict_proba(test_features)[:, 1]
+    baselines["gradient_boosting"] = calculate_metrics(
+        test_labels,
+        (gradient_probabilities >= 0.5).astype(int),
+        gradient_probabilities,
+    )
     metrics.update(
         {
             "training_examples": len(train_indices),
@@ -374,6 +435,8 @@ def main() -> None:
             "validation_fraction": 0.2,
             "features": FEATURE_NAMES,
             "negative_sampling": "random pairs not present in the input positives",
+            "class_weighting": "positive loss weight and balanced logistic regression",
+            "baselines": baselines,
         }
     )
 
@@ -429,6 +492,8 @@ def main() -> None:
     print(f"Accuracy: {metrics['accuracy']:.4f}")
     print(f"Precision: {metrics['precision']:.4f}")
     print(f"Recall: {metrics['recall']:.4f}")
+    print(f"F1: {metrics['f1']:.4f}")
+    print(f"PR-AUC: {metrics['pr_auc']:.4f}")
     print(f"Specificity: {metrics['specificity']:.4f}")
     print(f"Métricas: {args.metrics}")
     print(f"Previsões: {args.predictions}")

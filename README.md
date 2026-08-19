@@ -8,7 +8,8 @@ Genealogy Project (MGP) com autores e trabalhos do OpenAlex.
 - Python 3.10 ou superior;
 - acesso à API do OpenAlex;
 - `OPENALEX_API_KEY` configurada no ambiente;
-- PyTorch, NumPy e pandas para a etapa de treinamento;
+- PyTorch, NumPy, pandas e scikit-learn para a etapa de treinamento e os
+  baselines tabulares;
 - acesso ao banco SQLite do MGP.
 
 O banco utilizado pela pipeline deve ficar na raiz do projeto clonado:
@@ -42,7 +43,7 @@ Git.
 Instale as dependências disponíveis no projeto:
 
 ```bash
-python3 -m pip install pandas numpy torch
+python3 -m pip install pandas numpy torch scikit-learn
 ```
 
 Os scripts ficam no diretório `scripts/`, e os CSVs, modelos e métricas
@@ -162,6 +163,10 @@ gera pares negativos amostrados e salva:
 - `relationship_predictions.csv`: probabilidades e classes previstas;
 - `relationship_test_metrics.json`: métricas do experimento;
 - `relationship_mlp.pt`: pesos e parâmetros do modelo.
+
+O JSON de métricas também registra os resultados da regra de coautoria, da
+regressão logística e do Gradient Boosting. São calculadas accuracy, precision,
+recall, F1, PR-AUC, specificity e negative predictive value.
 
 Parâmetros opcionais:
 
