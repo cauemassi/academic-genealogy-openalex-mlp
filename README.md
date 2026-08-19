@@ -70,7 +70,8 @@ Saída padrão:
 researchers_with_advisors.csv
 ```
 
-Para selecionar outro intervalo, altere os argumentos `seed` e `limit`.
+Para selecionar outro ponto de partida ou outra quantidade de pesquisadores,
+altere os argumentos `seed` e `limit`.
 
 ### 2. Identificar autores no OpenAlex
 
@@ -159,7 +160,7 @@ gera pares negativos amostrados e salva:
 
 - `relationship_training_dataset.csv`: características e rótulos;
 - `relationship_predictions.csv`: probabilidades e classes previstas;
-- `relationship_validation_metrics.json`: métricas do experimento;
+- `relationship_test_metrics.json`: métricas do experimento;
 - `relationship_mlp.pt`: pesos e parâmetros do modelo.
 
 Parâmetros opcionais:

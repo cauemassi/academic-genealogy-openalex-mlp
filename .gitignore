@@ -1,0 +1,17 @@
+# Local data and credentials
+mgp.sqlite
+*.sqlite
+*.db
+.env
+
+# Generated pipeline outputs
+*.csv
+*.json
+*.pt
+*.log
+__pycache__/
+*.py[cod]
+
+# Local OpenAlex caches
+*_cache.json
+cache/
