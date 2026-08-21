@@ -46,7 +46,7 @@ Instale as dependências disponíveis no projeto:
 python3 -m pip install pandas numpy torch scikit-learn
 ```
 
-Os scripts ficam no diretório `scripts/`, e os CSVs, modelos e métricas
+Os scripts ficam no diretório atual, e os CSVs, modelos e métricas
 gerados também são gravados nesse diretório. O banco `mgp.sqlite` não deve ser
 versionado se houver restrições de distribuição; nesse caso, solicite o
 arquivo pelo contato acima e coloque-o manualmente na raiz do projeto.
@@ -61,7 +61,7 @@ O script recebe um pesquisador inicial (`seed`) e a quantidade de
 pesquisadores a extrair (`limit`):
 
 ```bash
-python3 scripts/extract_researchers.py 1 1000 \
+python3 extract_researchers.py 1 1000 \
   --db-path ./mgp.sqlite
 ```
 
@@ -77,7 +77,7 @@ altere os argumentos `seed` e `limit`.
 ### 2. Identificar autores no OpenAlex
 
 ```bash
-python3 scripts/identify_researchers_openalex.py
+python3 identify_researchers_openalex.py
 ```
 
 Essa etapa usa nomes, instituições e informações da área de matemática para
@@ -91,7 +91,7 @@ Arquivos principais gerados:
 ### 3. Manter somente relações com os dois IDs
 
 ```bash
-python3 scripts/extract_openalex_relationships.py
+python3 extract_openalex_relationships.py
 ```
 
 O resultado é acrescentado de forma incremental em:
@@ -103,7 +103,7 @@ researchers_with_advisors_and_open_alex_id_complete.csv
 Para sincronizar IDs que já estejam no cache:
 
 ```bash
-python3 scripts/sync_openalex_relationship_ids.py
+python3 sync_openalex_relationship_ids.py
 ```
 
 ### 4. Buscar trabalhos compartilhados
@@ -112,7 +112,7 @@ A busca abaixo usa os dois IDs OpenAlex e procura trabalhos em geral, não
 somente dissertações:
 
 ```bash
-python3 scripts/extract_dissertation_relationships.py
+python3 extract_dissertation_relationships.py
 ```
 
 O nome do script é legado; o comportamento atual consulta trabalhos de
@@ -126,16 +126,15 @@ Para consultar trabalhos usando apenas nomes, sem os IDs OpenAlex, também
 existe:
 
 ```bash
-python3 scripts/extract_works.py
+python3 extract_works.py
 ```
 
 Essa alternativa gera `researchers_openalex_works.csv` e deve ser usada quando
 o arquivo de entrada contiver as colunas `researcher_name` e `advisor_name`.
 
 ### 5. Filtrar linhas com trabalhos encontrados
-
 ```bash
-python3 scripts/extract_works_found.py
+python3 extract_works_found.py
 ```
 
 Entrada padrão:
@@ -153,7 +152,7 @@ researchers_advisors_works_found.csv
 ### 6. Treinar a MLP
 
 ```bash
-python3 scripts/train_relationship_mlp.py
+python3 train_relationship_mlp.py
 ```
 
 O treinamento usa 80% dos exemplos para treinamento e 20% para teste,
@@ -171,7 +170,7 @@ recall, F1, PR-AUC, specificity e negative predictive value.
 Parâmetros opcionais:
 
 ```bash
-python3 scripts/train_relationship_mlp.py \
+python3 train_relationship_mlp.py \
   --epochs 300 \
   --negative-ratio 1.0 \
   --seed 42
@@ -183,15 +182,15 @@ Todos os scripts que leem ou escrevem CSV aceitam opções `--input` e
 `--output`. Por exemplo:
 
 ```bash
-python3 scripts/extract_works_found.py \
-  --input ./scripts/pesquisadores_works.csv \
-  --output ./scripts/pesquisadores_works_found.csv
+python3 extract_works_found.py \
+  --input ./pesquisadores_works.csv \
+  --output ./pesquisadores_works_found.csv
 ```
 
 Consulte os demais parâmetros com:
 
 ```bash
-python3 scripts/nome_do_script.py --help
+python3 nome_do_script.py --help
 ```
 
 ## Observações importantes
